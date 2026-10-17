@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity - Virtual 3D Archive & Portfolio Gallery</title>
+    <!-- Modern Styling -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- 3D Canvas rendering container -->
+    <div id="canvas-container"></div>
+    
+    <!-- Fine cyan reticle/crosshair indicator for hover raycasting feedback -->
+    <div id="crosshair"></div>
+
+    <!-- Top Navigation Bar -->
+    <header id="top-bar">
+        <div id="brand" onclick="window.location.reload();">
+            <div id="brand-logo"></div>
+            <span id="gallery-title">Antigravity</span>
+        </div>
+        <div class="nav-buttons">
+            <button id="btn-curation" class="secondary" style="border-color: rgba(0, 242, 254, 0.3);">Curation: OFF</button>
+            <button id="btn-bgm" class="secondary icon-only" title="Toggle Background Music">♪ ON</button>
+            <button id="btn-add" class="primary">＋ Add Work</button>
+            <button id="btn-works" class="secondary">Archive</button>
+            <button id="btn-about" class="secondary">Gallery Info</button>
+            <button id="btn-export" class="secondary">Export</button>
+            <button id="btn-import" class="secondary">Import</button>
+            <button id="btn-help" class="secondary">? Help</button>
+            <button id="btn-fullscreen" class="secondary icon-only">⛶</button>
+        </div>
+    </header>
+
+    <!-- Sidebar Left: Collapsible menu listing exhibitions & works -->
+    <aside id="sidebar-left" class="panel collapsed">
+        <div class="panel-header">
+            <h2>Archive Index</h2>
+            <span class="close-btn" id="close-sidebar">&times;</span>
+        </div>
+        <div class="panel-content">
+            <button id="btn-new-exh" class="primary" style="margin-bottom: 1.25rem; width: 100%; justify-content: center; font-size: 0.85rem; padding: 0.6rem;">＋ New Exhibition</button>
+            <div id="sidebar-works-container">
+                <!-- Grouped exhibitions and works injected dynamically by app.js -->
+            </div>
+        </div>
+    </aside>
+
+    <!-- Sidebar Right: Virtual Caption Docent details -->
+    <aside id="docent-panel" class="panel">
+        <div class="panel-header">
+            <h2 style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Virtual Caption</h2>
+            <span class="close-btn" id="close-docent">&times;</span>
+        </div>
+        <div class="panel-content">
+            <div id="docent-img-container">
+                <img id="docent-img" src="" alt="Active artwork inspection image">
+            </div>
+            <h3 id="docent-title">Artwork Title</h3>
+            <div id="docent-exh">Exhibition Area</div>
+            <div id="docent-meta">
+                <!-- Date and Medium Badges injected by app.js -->
+            </div>
+            <div id="docent-notes">Artist commentary and process notes...</div>
+            <div style="display: flex; gap: 0.75rem; margin-top: auto; padding-top: 1rem;">
+                <button id="btn-edit-work" class="secondary" style="flex: 1; justify-content: center;">Edit</button>
+                <button id="btn-delete-work" style="background: rgba(231, 76, 60, 0.2); border-color: rgba(231, 76, 60, 0.4); color: #ff6b6b; flex: 1; justify-content: center;">Delete</button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Bottom Left HUD: Active Room / Exhibition Spatial zone tracker -->
+    <div id="zone-indicator">
+        <span id="zone-gallery-title">Antigravity Gallery</span>
+        <span id="zone-exh-title">Main Lobby</span>
+    </div>
+
+    <!-- Upload / Edit Artwork Modal Overlay -->
+    <div id="modal-upload" class="overlay">
+        <div class="modal">
+            <span class="close-btn" onclick="UI.hideModal('modal-upload')">&times;</span>
+            <h2 id="modal-upload-title">Add New Artwork</h2>
+            <form id="form-upload" style="margin-top: 1.5rem;">
+                <div class="form-group">
+                    <label>Upload Artwork Image</label>
+                    <div class="file-upload-wrapper">
+                        <span style="font-size: 0.9rem; color: var(--text-muted);">Drag & drop or click to choose file</span>
+                        <input type="file" id="input-file" accept="image/*">
+                    </div>
+                    <div id="file-preview-container" style="margin-top: 1rem; display: none; text-align: center;">
+                        <img id="file-preview" style="max-width: 150px; max-height: 150px; border-radius: var(--radius); border: 1px solid var(--border-glass);">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Work Title (Required)</label>
+                    <input type="text" id="input-title" required placeholder="e.g. Self-Portrait Study">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Exhibition Name</label>
+                        <input type="text" id="input-exh" placeholder="e.g. Classical Studies" list="exh-suggestions">
+                        <datalist id="exh-suggestions">
+                            <option value="Classical Studies">
+                            <option value="Neo-Futurism">
+                            <option value="Ethereal Plains">
+                        </datalist>
+                    </div>
+                    <div class="form-group">
+                        <label>Creation Date</label>
+                        <input type="date" id="input-date">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Medium (Required)</label>
+                    <input type="text" id="input-medium" required placeholder="e.g. Pencil Sketch, 3D Modeling, Watercolor">
+                </div>
+                <div class="form-group">
+                    <label>Text Log / Artist Commentary</label>
+                    <textarea id="input-notes" rows="4" placeholder="Describe the creative process, ideas, tools used..."></textarea>
+                </div>
+                
+                <!-- Collapsible Custom 3D Presets -->
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="toggle-preset-fields" style="width: auto;">
+                        <span>Customize 3D Preset (Optional)</span>
+                    </label>
+                    <div id="preset-fields" class="preset-details" style="display: none;">
+                        <h3>Configure unique scene aesthetics for this piece:</h3>
+                        <div class="form-row">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label>Space Theme</label>
+                                <select id="preset-space">
+                                    <option value="gallery">Default concrete museum</option>
+                                    <option value="sketch_studio">Cozy wooden sketch room</option>
+                                    <option value="cyber_void">Anti-gravity neon dark void</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label>Framing Style</label>
+                                <select id="preset-frame">
+                                    <option value="minimal_metal">Minimal metal frame</option>
+                                    <option value="classic_wood">Ornate wooden frame</option>
+                                    <option value="frameless">Frameless floating canvas</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <input type="hidden" id="input-id">
+                <button type="submit" class="primary" style="width: 100%; justify-content: center; margin-top: 1.5rem;">Save Artwork</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- About Gallery Metadata Modal Overlay -->
+    <div id="modal-about" class="overlay">
+        <div class="modal">
+            <span class="close-btn" onclick="UI.hideModal('modal-about')">&times;</span>
+            <h2>Manage Gallery Info</h2>
+            <div style="margin-top: 1.5rem;">
+                <div class="form-group">
+                    <label>Gallery Name</label>
+                    <input type="text" id="about-gallery-name">
+                </div>
+                
+                <h3 style="font-size: 0.95rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.75rem; font-weight: 700;">Exhibition Metadata & Summaries</h3>
+                <div id="about-exh-list" style="max-height: 250px; overflow-y: auto; padding-right: 0.5rem;">
+                    <!-- List of exhibitions injected by app.js -->
+                </div>
+                
+                <button id="btn-save-about" class="primary" style="width: 100%; justify-content: center; margin-top: 1.5rem;">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal Overlay -->
+    <div id="modal-help" class="overlay">
+        <div class="modal">
+            <span class="close-btn" onclick="UI.hideModal('modal-help')">&times;</span>
+            <h2>Gallery Controls Guide</h2>
+            <p style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 1.25rem;">
+                Explore the immersive 3D gallery spatial exhibitions by walking around manually or clicking archive items.
+            </p>
+            <table class="help-table">
+                <tr><td>Move Forward / Backward</td><td><span class="key-box">W</span> / <span class="key-box">S</span> or <span class="key-box">↑</span> / <span class="key-box">↓</span></td></tr>
+                <tr><td>Strafe Left / Right</td><td><span class="key-box">A</span> / <span class="key-box">D</span></td></tr>
+                <tr><td>Rotate Camera (Yaw)</td><td><span class="key-box">←</span> / <span class="key-box">→</span></td></tr>
+                <tr><td>Tilt Camera Up / Down</td><td><span class="key-box">E</span> / <span class="key-box">Q</span></td></tr>
+                <tr><td>Look Around (Free Look)</td><td>Click & Drag Mouse on Scene</td></tr>
+                <tr><td>Adjust Zoom (FOV)</td><td>Scroll Mouse Wheel</td></tr>
+                <tr><td>Select / Inspect Artwork</td><td>Click on any artwork</td></tr>
+                <tr><td>Exit Zoom Inspect Mode</td><td>Press <span class="key-box">Esc</span></td></tr>
+            </table>
+            <button onclick="UI.hideModal('modal-help')" class="primary" style="width: 100%; justify-content: center; margin-top: 1.5rem;">Begin Exploring</button>
+        </div>
+    </div>
+
+    <!-- Sidebar Right: Curation Controls -->
+    <aside id="curation-panel" class="panel" style="top: 75px; right: 20px; width: 360px; max-height: calc(100vh - 95px); display: flex; flex-direction: column; overflow: hidden; transform: translateX(400px); opacity: 0;">
+        <div class="panel-header">
+            <h2 style="font-size: 0.8rem; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 1px;">Curation Controls</h2>
+            <span class="close-btn" id="close-curation">&times;</span>
+        </div>
+        <div class="panel-content" style="overflow-y: auto;">
+            <h3 id="curation-work-title" style="font-size: 1.1rem; margin-bottom: 1rem;">Selected Work</h3>
+            
+            <div class="curation-slider-group">
+                <label>X Position <span id="val-x">0.0</span></label>
+                <input type="range" id="slide-x" min="-9.5" max="9.5" step="0.1">
+            </div>
+            
+            <div class="curation-slider-group">
+                <label>Y Position <span id="val-y">2.2</span></label>
+                <input type="range" id="slide-y" min="0.5" max="7.5" step="0.1">
+            </div>
+            
+            <div class="curation-slider-group">
+                <label>Z Position <span id="val-z">0.0</span></label>
+                <input type="range" id="slide-z" min="-15" max="15" step="0.1">
+            </div>
+            
+            <div class="curation-slider-group">
+                <label>Rotation Y <span id="val-roty">0°</span></label>
+                <input type="range" id="slide-roty" min="0" max="360" step="1">
+            </div>
+            
+            <div class="form-group" style="margin-top: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="curation-floating" style="width: auto;">
+                    <span>Bobbing & Floating Mesh (Anti-gravity)</span>
+                </label>
+            </div>
+            
+            <button id="btn-curation-deselect" class="secondary" style="width: 100%; justify-content: center; margin-top: 1.5rem;">Deselect Artwork</button>
+        </div>
+    </aside>
+
+    <!-- Exhibition Customization Modal Overlay -->
+    <div id="modal-exh-settings" class="overlay">
+        <div class="modal">
+            <span class="close-btn" onclick="UI.hideModal('modal-exh-settings')">&times;</span>
+            <h2 id="exh-settings-title">Exhibition Settings</h2>
+            <form id="form-exh-settings" style="margin-top: 1.25rem;">
+                <input type="hidden" id="exh-settings-old-name">
+                <div class="form-group">
+                    <label>Exhibition Title</label>
+                    <input type="text" id="exh-settings-name" required placeholder="e.g. Neo-Futurism">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="exh-settings-desc" rows="3" placeholder="Describe the themes and aesthetics of this room..."></textarea>
+                </div>
+                
+                <h3 style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.75rem; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.25rem;">Spatial Style & Aesthetics</h3>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Interior Theme</label>
+                        <select id="exh-settings-style">
+                            <option value="default_gallery">Concrete Museum</option>
+                            <option value="sketch_studio">Paper/Wooden Studio</option>
+                            <option value="cyber_void">Anti-gravity Floating Void</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Background Music (BGM)</label>
+                        <select id="exh-settings-bgm">
+                            <option value="none">None</option>
+                            <option value="ambient">Ethereal Ambient Synth</option>
+                            <option value="lo-fi">Warm Lo-Fi Rhodes & Crackle</option>
+                            <option value="classic">Gentle Classical Harp</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Lighting Style</label>
+                        <select id="exh-settings-light-type">
+                            <option value="spotlight">Ceiling Spotlights</option>
+                            <option value="point">Glowing Ambient Point Lights</option>
+                            <option value="ambient">Flat Uniform Ambient</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Layout Mode</label>
+                        <select id="exh-settings-layout">
+                            <option value="auto">Auto (Chronological Alignment)</option>
+                            <option value="manual">Manual (Curation Mode Drag-Drop)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Light Color</label>
+                        <input type="color" id="exh-settings-light-color" value="#ffffff">
+                    </div>
+                    <div class="form-group">
+                        <label>Light Intensity</label>
+                        <input type="range" id="exh-settings-light-intensity" min="0.1" max="5.0" step="0.1" value="1.0" style="padding: 0; margin-top: 0.5rem; height: auto;">
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="submit" class="primary" style="flex: 2; justify-content: center;">Save Settings</button>
+                    <button id="btn-delete-exh" type="button" style="background: rgba(231, 76, 60, 0.2); border-color: rgba(231, 76, 60, 0.4); color: #ff6b6b; flex: 1; justify-content: center;">Delete Room</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Curation Mode active HUD banner -->
+    <div id="curation-hud">
+        <span id="curation-hud-dot"></span>
+        <span>CURATION MODE ACTIVE - CLICK & DRAG WORKS ON WALLS</span>
+    </div>
+
+    <!-- Bottom Center Controls Hint HUD overlay -->
+    <div id="controls-hint">
+        <span class="hint-icon"></span>
+        <span>Use WASD / Arrows to Walk · Click & Drag to Look · Click on Artwork to Inspect</span>
+    </div>
+
+    <!-- Dependency Libraries via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    
+    <!-- Main Application Logic script -->
+    <script src="app.js" defer></script>
+</body>
+</html>
