@@ -1,6 +1,12 @@
 // === GLOBAL APP CONSTANTS & VARIABLES ===
 const clock = new THREE.Clock();
 
+// Text stored in the gallery must never be interpreted as markup
+function escapeHtml(value) {
+    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return String(value ?? '').replace(/[&<>"']/g, char => entities[char]);
+}
+
 // === PROCEDURAL BGM ENGINE ===
 // Generates beautiful ambient music in the browser using Web Audio API on the fly
 // Replaces static MP3 assets with zero-latency generative synthesis
@@ -13,14 +19,15 @@ const ProceduralBGM = {
     intervalId: null,
     isPlaying: false,
     MUTED_KEY: 'gallery_bgm_muted',
-    muted: false,
+    VOLUME: 1.0,
+    muted: true,
 
-    // Remembers the viewer's choice; browsers that block storage just start with music on
+    // Music stays off until the viewer turns it on; that choice is remembered
     loadPreference() {
         try {
-            this.muted = localStorage.getItem(this.MUTED_KEY) === 'true';
+            this.muted = localStorage.getItem(this.MUTED_KEY) !== 'false';
         } catch (err) {
-            this.muted = false;
+            this.muted = true;
         }
         this.syncButton();
     },
@@ -33,11 +40,28 @@ const ProceduralBGM = {
             console.warn('Could not remember the music setting.', err);
         }
         
-        if (this.ctx) {
-            if (this.muted) this.ctx.suspend();
-            else this.ctx.resume();
-        }
         this.syncButton();
+        
+        if (this.muted) {
+            if (this.ctx) this.ctx.suspend();
+            return;
+        }
+        
+        // Without this, an iPhone's silent switch also mutes the music
+        if (navigator.audioSession) navigator.audioSession.type = 'playback';
+        
+        this.init();
+        if (this.ctx) this.ctx.resume().then(() => this.playNow());
+    },
+
+    // Starts the current room's music right away instead of at its next note
+    playNow() {
+        if (this.muted || !this.activePreset || this.activePreset === 'none') return;
+        
+        const now = this.ctx.currentTime;
+        this.masterGain.gain.cancelScheduledValues(now);
+        this.masterGain.gain.setValueAtTime(this.VOLUME, now);
+        this.startPreset(this.activePreset);
     },
 
     syncButton() {
@@ -53,8 +77,14 @@ const ProceduralBGM = {
         this.ctx = new AudioContextClass();
         
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.setValueAtTime(0.4, this.ctx.currentTime);
-        this.masterGain.connect(this.ctx.destination);
+        this.masterGain.gain.setValueAtTime(this.VOLUME, this.ctx.currentTime);
+        
+        // Overlapping notes would otherwise clip at this volume
+        this.limiter = this.ctx.createDynamicsCompressor();
+        this.limiter.threshold.setValueAtTime(-6, this.ctx.currentTime);
+        this.limiter.ratio.setValueAtTime(12, this.ctx.currentTime);
+        this.masterGain.connect(this.limiter);
+        this.limiter.connect(this.ctx.destination);
         
         if (this.muted) this.ctx.suspend();
     },
@@ -87,7 +117,7 @@ const ProceduralBGM = {
                 this.startPreset(preset);
                 const fadeNow = this.ctx.currentTime;
                 this.masterGain.gain.setValueAtTime(0.001, fadeNow);
-                this.masterGain.gain.linearRampToValueAtTime(0.35, fadeNow + fadeTime);
+                this.masterGain.gain.linearRampToValueAtTime(this.VOLUME, fadeNow + fadeTime);
             }
         }, fadeTime * 1000);
     },
@@ -120,7 +150,7 @@ const ProceduralBGM = {
 
     // Lush pentatonic synthesizer pads
     playAmbient() {
-        const notes = [130.81, 146.83, 164.81, 196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00]; // C Major Pentatonic scale
+        const notes = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25, 783.99, 880.00]; // C Major Pentatonic scale
         
         const triggerPad = () => {
             if (!this.ctx || this.ctx.state === 'suspended') return;
@@ -142,11 +172,11 @@ const ProceduralBGM = {
                 osc.frequency.linearRampToValueAtTime(freq + (Math.random() - 0.5) * 2, now + 4);
                 
                 filter.type = 'lowpass';
-                filter.frequency.setValueAtTime(450 + Math.random() * 150, now);
+                filter.frequency.setValueAtTime(1400 + Math.random() * 300, now);
                 
                 gain.gain.setValueAtTime(0, now);
-                gain.gain.linearRampToValueAtTime(0.04, now + 2.0 + Math.random() * 0.5);
-                gain.gain.setValueAtTime(0.04, now + 4.0);
+                gain.gain.linearRampToValueAtTime(0.13, now + 1.0 + Math.random() * 0.5);
+                gain.gain.setValueAtTime(0.13, now + 4.0);
                 gain.gain.exponentialRampToValueAtTime(0.001, now + 7.5);
                 
                 osc.connect(filter);
@@ -190,7 +220,7 @@ const ProceduralBGM = {
         crackleFilter.Q.setValueAtTime(0.4, now);
         
         const crackleGain = this.ctx.createGain();
-        crackleGain.gain.setValueAtTime(0.06, now);
+        crackleGain.gain.setValueAtTime(0.15, now);
         
         this.crackleNode.connect(crackleFilter);
         crackleFilter.connect(crackleGain);
@@ -218,14 +248,14 @@ const ProceduralBGM = {
                 const filter = this.ctx.createBiquadFilter();
                 
                 osc.type = 'triangle';
-                osc.frequency.setValueAtTime(freq, tNow);
+                osc.frequency.setValueAtTime(freq * 2, tNow);
                 
                 filter.type = 'lowpass';
-                filter.frequency.setValueAtTime(280, tNow);
+                filter.frequency.setValueAtTime(1000, tNow);
                 
                 gain.gain.setValueAtTime(0, tNow);
-                gain.gain.linearRampToValueAtTime(0.08, tNow + 0.15);
-                gain.gain.setValueAtTime(0.08, tNow + 1.8);
+                gain.gain.linearRampToValueAtTime(0.16, tNow + 0.15);
+                gain.gain.setValueAtTime(0.16, tNow + 1.8);
                 gain.gain.exponentialRampToValueAtTime(0.001, tNow + 3.0);
                 
                 osc.connect(filter);
@@ -265,10 +295,10 @@ const ProceduralBGM = {
             osc.frequency.setValueAtTime(freq, tNow);
             
             filter.type = 'lowpass';
-            filter.frequency.setValueAtTime(900, tNow);
+            filter.frequency.setValueAtTime(1800, tNow);
             
             gain.gain.setValueAtTime(0, tNow);
-            gain.gain.linearRampToValueAtTime(0.04, tNow + 0.03);
+            gain.gain.linearRampToValueAtTime(0.25, tNow + 0.03);
             gain.gain.exponentialRampToValueAtTime(0.001, tNow + 1.1);
             
             osc.connect(filter);
@@ -386,7 +416,7 @@ function createTileTexture(type) {
         // Cyberpunk grid
         ctx.fillStyle = '#05070f';
         ctx.fillRect(0, 0, 256, 256);
-        ctx.strokeStyle = '#00f2fe';
+        ctx.strokeStyle = '#c8b88a';
         ctx.lineWidth = 1;
         ctx.strokeRect(0, 0, 256, 256);
         // Emissive cross lines
@@ -395,7 +425,7 @@ function createTileTexture(type) {
         ctx.moveTo(0, 128); ctx.lineTo(256, 128);
         ctx.stroke();
         // Inner grid soft fill
-        ctx.fillStyle = 'rgba(0, 242, 254, 0.02)';
+        ctx.fillStyle = 'rgba(200, 184, 138, 0.02)';
         ctx.fillRect(4, 4, 248, 248);
     }
 
@@ -422,6 +452,7 @@ const App = {
     
     hoveredArtwork: null,
     activeArtwork: null,
+    dismissedArtworkId: null,
     
     // Curation parameters
     curationMode: false,
@@ -430,7 +461,13 @@ const App = {
     async init() {
         try {
             // Load database
-            this.data = await Storage.load();
+            try {
+                this.data = await Storage.load();
+            } catch (err) {
+                console.error('Could not load the gallery from Firestore.', err);
+                UI.showLoadError('The gallery could not load. Check your connection and try again.');
+                return;
+            }
             
             // Set up Three.js components
             this.scene = new THREE.Scene();
@@ -441,6 +478,7 @@ const App = {
             this.camera.position.set(0, 1.7, 10);
             
             this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             this.renderer.setSize(window.innerWidth, window.innerHeight);
             this.renderer.shadowMap.enabled = true;
             this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -463,6 +501,7 @@ const App = {
             
             // Window resizing
             window.addEventListener('resize', () => this.onResize());
+            this.syncTopOffset();
             
             // Start render loop
             this.animate();
@@ -470,26 +509,62 @@ const App = {
             // Owner sign-in (visitors stay in read-only mode)
             Auth.init();
             
+            document.getElementById('loading-screen').hidden = true;
             console.log("Virtual 3D Gallery Initialized.");
         } catch (err) {
             console.error("Failed to initialize 3D scene:", err);
+            UI.showLoadError("This browser can't show the 3D gallery. Try a recent version of Chrome, Safari, or Firefox.");
         }
+    },
+    
+    // Auto rooms recalculate positions on load, so a hand-placed work needs a manual room.
+    // Every work in the room keeps the spot it has on screen right now.
+    keepManualPlacement(work) {
+        const roomName = work.exhibition || 'General Collection';
+        const room = this.data.exhibitions.find(exh => exh.name === roomName);
+        if (!room || room.layout_mode === 'manual') return;
+        
+        room.layout_mode = 'manual';
+        this.artworksInScene.forEach(art => {
+            const roommate = this.data.artworks.find(w => w.id === art.data.id);
+            if (!roommate || roommate === work || (roommate.exhibition || 'General Collection') !== roomName) return;
+            roommate.transform = {
+                x: art.group.position.x,
+                y: art.baseY,
+                z: art.group.position.z,
+                rotY: art.group.rotation.y
+            };
+        });
     },
     
     setupControls() {
         this.controls = new GalleryControls(this.camera, this.renderer.domElement);
     },
     
+    // Removes an object and frees the GPU memory it holds
+    removeAndDispose(object) {
+        this.scene.remove(object);
+        object.traverse(node => {
+            if (node.geometry) node.geometry.dispose();
+            const materials = [].concat(node.material || []);
+            materials.forEach(material => {
+                if (material.map) material.map.dispose();
+                material.dispose();
+            });
+            if (node.isLight && node.dispose) node.dispose();
+        });
+    },
+    
     // Group and rebuild all rooms and artworks
     reconstructGallery() {
         // Clean up previous scene objects
         this.artworksInScene.forEach(a => {
-            this.scene.remove(a.group);
-            if (a.light) this.scene.remove(a.light);
-            if (a.backglow) this.scene.remove(a.backglow);
+            this.removeAndDispose(a.group);
+            if (a.light) this.removeAndDispose(a.light);
+            if (a.backglow) this.removeAndDispose(a.backglow);
         });
         if (this.selectedHelper) {
-            this.scene.remove(this.selectedHelper);
+            this.removeAndDispose(this.selectedHelper);
             this.selectedHelper = null;
         }
         
@@ -500,7 +575,7 @@ const App = {
                 toRemove.push(node);
             }
         });
-        toRemove.forEach(node => this.scene.remove(node));
+        toRemove.forEach(node => this.removeAndDispose(node));
         
         this.artworksInScene = [];
         this.floatingArtworks = [];
@@ -536,7 +611,7 @@ const App = {
         
         if (exhNames.length === 0) {
             this.createRoom('Empty Gallery', 0, [], 'default_gallery');
-            UI.updateExhibitionInfo('Empty Gallery', 'No artworks present. Click "+ Add Work" to populate your gallery!');
+            UI.updateExhibitionInfo('Empty Gallery', 'No artworks present. Click "+ Add artwork" to populate your gallery.');
             return;
         }
         
@@ -557,7 +632,9 @@ const App = {
         });
         
         // Update gallery title
-        document.getElementById('gallery-title').innerText = this.data.galleryName || 'Antigravity';
+        const galleryName = this.data.galleryName || '1116 Gallery';
+        document.getElementById('gallery-title').innerText = galleryName;
+        document.title = galleryName;
         
         // Trigger initial UI updates
         UI.syncSidebar();
@@ -604,12 +681,12 @@ const App = {
             this.scene.add(particles);
             
             // Subtle ambient neon lighting (brightened for visibility)
-            const pLight1 = new THREE.PointLight(0x00f2fe, 3.0, 30);
+            const pLight1 = new THREE.PointLight(0xfff0d0, 3.0, 30);
             pLight1.position.set(-8, 3.5, zCenter);
             pLight1.userData = { isRoomGeo: true };
             this.scene.add(pLight1);
             
-            const pLight2 = new THREE.PointLight(0x7f00ff, 3.0, 30);
+            const pLight2 = new THREE.PointLight(0xffd9a0, 3.0, 30);
             pLight2.position.set(8, 3.5, zCenter);
             pLight2.userData = { isRoomGeo: true };
             this.scene.add(pLight2);
@@ -706,6 +783,9 @@ const App = {
                 southWall.receiveShadow = true;
                 southWall.userData = { isRoomGeo: true };
                 this.scene.add(southWall);
+            } else if (this.exhibitionsList[index - 1].style === 'cyber_void') {
+                // A cyber void builds no walls, so this room closes the gap itself
+                this.createPartitionWall(zCenter + depth/2, wallMat, width, height);
             }
             
             // North Wall (Z = zCenter - 15) - Partition Wall with Doorway
@@ -718,49 +798,7 @@ const App = {
                 northWall.userData = { isRoomGeo: true };
                 this.scene.add(northWall);
             } else {
-                // Connecting partition wall: Left side, Right side, Top lintel (widened to 6m)
-                const doorWidth = 6.0;
-                const sideWidth = (width - doorWidth) / 2; // (20 - 6)/2 = 7
-                const sideCenter = width/2 - sideWidth/2; // 10 - 3.5 = 6.5
-                const doorHeight = 4.5;
-                
-                // Left partition panel
-                const wallLeft = new THREE.Mesh(new THREE.PlaneGeometry(sideWidth, height), wallMat);
-                wallLeft.position.set(-sideCenter, height/2, wallZ);
-                wallLeft.receiveShadow = true;
-                wallLeft.userData = { isRoomGeo: true };
-                this.scene.add(wallLeft);
-                
-                // Right partition panel
-                const wallRight = new THREE.Mesh(new THREE.PlaneGeometry(sideWidth, height), wallMat);
-                wallRight.position.set(sideCenter, height/2, wallZ);
-                wallRight.receiveShadow = true;
-                wallRight.userData = { isRoomGeo: true };
-                this.scene.add(wallRight);
-                
-                // Lintel panel above doorway
-                const wallTop = new THREE.Mesh(new THREE.PlaneGeometry(doorWidth, height - doorHeight), wallMat);
-                wallTop.position.set(0, height - (height - doorHeight)/2, wallZ);
-                wallTop.receiveShadow = true;
-                wallTop.userData = { isRoomGeo: true };
-                this.scene.add(wallTop);
-                
-                // Render a concrete frame/archway around doorway to look nice
-                const doorFrameMat = new THREE.MeshStandardMaterial({ color: 0x1f2430, roughness: 0.7 });
-                const frameLeft = new THREE.Mesh(new THREE.BoxGeometry(0.1, doorHeight, 0.4), doorFrameMat);
-                frameLeft.position.set(-(doorWidth/2 + 0.05), doorHeight/2, wallZ);
-                frameLeft.userData = { isRoomGeo: true, isDoor: true };
-                this.scene.add(frameLeft);
-                
-                const frameRight = new THREE.Mesh(new THREE.BoxGeometry(0.1, doorHeight, 0.4), doorFrameMat);
-                frameRight.position.set((doorWidth/2 + 0.05), doorHeight/2, wallZ);
-                frameRight.userData = { isRoomGeo: true, isDoor: true };
-                this.scene.add(frameRight);
-                
-                const frameTop = new THREE.Mesh(new THREE.BoxGeometry(doorWidth + 0.2, 0.1, 0.4), doorFrameMat);
-                frameTop.position.set(0, doorHeight, wallZ);
-                frameTop.userData = { isRoomGeo: true, isDoor: true };
-                this.scene.add(frameTop);
+                this.createPartitionWall(wallZ, wallMat, width, height);
             }
         }
         
@@ -822,8 +860,6 @@ const App = {
                         zPos = zCenter + (ratio - 0.5) * 18;
                     }
                     
-                    // Force transform values to sync in case layout shifts back
-                    work.transform = { x: xLeft, y: yOffset, z: zPos, rotY: Math.PI / 2 };
                     this.addArtworkToScene(work, new THREE.Vector3(xLeft, yOffset, zPos), Math.PI / 2, isFloating, style, zCenter);
                 });
                 
@@ -836,11 +872,46 @@ const App = {
                         zPos = zCenter + (ratio - 0.5) * 18;
                     }
                     
-                    work.transform = { x: xRight, y: yOffset, z: zPos, rotY: -Math.PI / 2 };
                     this.addArtworkToScene(work, new THREE.Vector3(xRight, yOffset, zPos), -Math.PI / 2, isFloating, style, zCenter);
                 });
             }
         }
+    },
+    
+    // Wall between two rooms, with a doorway matching the walking bounds in GalleryControls
+    createPartitionWall(wallZ, wallMat, width, height) {
+        const doorWidth = 6.0;
+        const doorHeight = 4.5;
+        const sideWidth = (width - doorWidth) / 2;
+        const sideCenter = width/2 - sideWidth/2;
+        
+        // Seen from both rooms, so both faces must render
+        const partitionMat = wallMat.clone();
+        partitionMat.side = THREE.DoubleSide;
+        
+        const addPanel = (panelWidth, panelHeight, x, y) => {
+            const panel = new THREE.Mesh(new THREE.PlaneGeometry(panelWidth, panelHeight), partitionMat);
+            panel.position.set(x, y, wallZ);
+            panel.receiveShadow = true;
+            panel.userData = { isRoomGeo: true };
+            this.scene.add(panel);
+        };
+        
+        addPanel(sideWidth, height, -sideCenter, height/2);
+        addPanel(sideWidth, height, sideCenter, height/2);
+        addPanel(doorWidth, height - doorHeight, 0, height - (height - doorHeight)/2);
+        
+        const doorFrameMat = new THREE.MeshStandardMaterial({ color: 0x1f2430, roughness: 0.7 });
+        const addFrame = (frameWidth, frameHeight, x, y) => {
+            const frame = new THREE.Mesh(new THREE.BoxGeometry(frameWidth, frameHeight, 0.4), doorFrameMat);
+            frame.position.set(x, y, wallZ);
+            frame.userData = { isRoomGeo: true, isDoor: true };
+            this.scene.add(frame);
+        };
+        
+        addFrame(0.1, doorHeight, -(doorWidth/2 + 0.05), doorHeight/2);
+        addFrame(0.1, doorHeight, doorWidth/2 + 0.05, doorHeight/2);
+        addFrame(doorWidth + 0.2, 0.1, 0, doorHeight);
     },
     
     // Create glowing neon particles for the cyber void zones
@@ -850,8 +921,8 @@ const App = {
         const positions = new Float32Array(count * 3);
         const colors = new Float32Array(count * 3);
         
-        const colorCyan = new THREE.Color('#00f2fe');
-        const colorPurple = new THREE.Color('#7f00ff');
+        const colorCyan = new THREE.Color('#d8d2c0');
+        const colorPurple = new THREE.Color('#8a8578');
         
         for (let i = 0; i < count; i++) {
             positions[i*3] = (Math.random() - 0.5) * 24;
@@ -895,6 +966,7 @@ const App = {
         const loader = new THREE.TextureLoader();
         
         loader.load(work.imageBase64, (texture) => {
+            texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
             const aspect = texture.image.width / texture.image.height;
             const h = 2.0;
             const w = h * aspect;
@@ -988,7 +1060,7 @@ const App = {
                 frameMeshes.push(backing);
                 
                 if (isFloating) {
-                    const glowColor = (work.medium || '').toLowerCase().includes('3d') ? 0xff7700 : 0x00f2fe;
+                    const glowColor = (work.medium || '').toLowerCase().includes('3d') ? 0xff7700 : 0xfff0d0;
                     const glowGeo = new THREE.PlaneGeometry(w + 0.3, h + 0.3);
                     const glowMat = new THREE.MeshBasicMaterial({ 
                         color: glowColor,
@@ -1021,7 +1093,7 @@ const App = {
                 spotLight.shadow.bias = -0.001;
                 this.scene.add(spotLight);
             } else {
-                const lightColor = (work.medium || '').toLowerCase().includes('3d') ? 0xffaa00 : 0x00f2fe;
+                const lightColor = (work.medium || '').toLowerCase().includes('3d') ? 0xffaa00 : 0xfff0d0;
                 spotLight = new THREE.PointLight(lightColor, 2.5, 8, 1.5);
                 spotLight.position.set(position.x, position.y, position.z);
                 this.scene.add(spotLight);
@@ -1058,7 +1130,14 @@ const App = {
         });
     },
     
+    // The bar wraps onto more rows on narrow screens; panels sit just below it
+    syncTopOffset() {
+        const barHeight = document.getElementById('top-bar').offsetHeight;
+        document.documentElement.style.setProperty('--top-offset', `${barHeight + 12}px`);
+    },
+    
     onResize() {
+        this.syncTopOffset();
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -1115,7 +1194,7 @@ const App = {
     
     getExhibitionDesc(exhName) {
         const found = this.data.exhibitions.find(e => e.name === exhName);
-        return found ? found.description : 'A curated spatial zone in the Antigravity archive.';
+        return found ? found.description : 'A curated space in this gallery.';
     },
     
     handleProximity() {
@@ -1126,7 +1205,15 @@ const App = {
         
         const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
         
+        // A closed caption stays closed until the viewer walks away from that work
+        const dismissed = this.artworksInScene.find(art => art.data.id === this.dismissedArtworkId);
+        if (!dismissed || this.camera.position.distanceTo(dismissed.group.position) > 5.0) {
+            this.dismissedArtworkId = null;
+        }
+        
         this.artworksInScene.forEach(art => {
+            if (art === dismissed) return;
+            
             const dist = this.camera.position.distanceTo(art.group.position);
             if (dist < minDist) {
                 const toArt = new THREE.Vector3().subVectors(art.group.position, this.camera.position).normalize();
@@ -1150,6 +1237,17 @@ const App = {
                 UI.hideDocent();
             }
         }
+    },
+    
+    // Finds the artwork under a screen position, if any
+    artworkAt(clientX, clientY) {
+        const point = new THREE.Vector2(
+            (clientX / window.innerWidth) * 2 - 1,
+            -(clientY / window.innerHeight) * 2 + 1
+        );
+        this.raycaster.setFromCamera(point, this.camera);
+        const hits = this.raycaster.intersectObjects(this.artworksInScene.map(a => a.plane));
+        return hits.length > 0 ? hits[0].object : null;
     },
     
     handleRaycasting() {
@@ -1180,6 +1278,7 @@ const App = {
         const art = this.artworksInScene.find(a => a.plane === mesh);
         if (!art) return;
         
+        this.dismissedArtworkId = null;
         this.activeArtwork = art;
         this.controls.isInspecting = true;
         
@@ -1194,6 +1293,7 @@ const App = {
     },
     
     closeInspection() {
+        if (this.activeArtwork) this.dismissedArtworkId = this.activeArtwork.data.id;
         this.controls.isInspecting = false;
         this.activeArtwork = null;
         UI.hideDocent();
@@ -1207,7 +1307,7 @@ const App = {
         }
         
         this.activeArtwork = artItem;
-        this.selectedHelper = new THREE.BoxHelper(artItem.group, '#00f2fe');
+        this.selectedHelper = new THREE.BoxHelper(artItem.group, '#ffcc00');
         this.scene.add(this.selectedHelper);
         
         // Push sliders UI
@@ -1234,13 +1334,18 @@ class GalleryControls {
         this.look = { up: false, down: false, left: false, right: false };
         this.rotation = { yaw: 0, pitch: 0 };
         
-        this.speed = 4.5;
+        this.speed = 8;
         this.rotSpeed = 1.2;
         this.sensitivity = 0.003;
         
         this.isMouseDown = false;
         this.hasMoved = false;
         this.prevMouse = { x: 0, y: 0 };
+        this.touchId = null;
+        this.touchStart = { x: 0, y: 0 };
+        this.touchDragged = false;
+        this.holdTimer = null;
+        this.holdWalking = false;
         
         this.isLerping = false;
         this.isInspecting = false;
@@ -1264,6 +1369,89 @@ class GalleryControls {
         window.addEventListener('mouseup', (e) => this.onMouseUp(e));
         
         this.domElement.addEventListener('wheel', (e) => this.onWheel(e));
+        
+        this.initTouch();
+    }
+    
+    // One finger looks around, taps select, and holding still walks forward
+    initTouch() {
+        const HOLD_MS = 250;
+        const TAP_SLOP_PX = 12; // Fingers wobble; less than this still counts as holding still
+        
+        const canvas = this.domElement;
+        const asMouse = (touch) => ({ clientX: touch.clientX, clientY: touch.clientY, target: canvas });
+        const trackedTouch = (e) => [...e.changedTouches].find(t => t.identifier === this.touchId);
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (this.touchId !== null) return;
+            const touch = e.changedTouches[0];
+            this.touchId = touch.identifier;
+            this.touchStart = { x: touch.clientX, y: touch.clientY };
+            this.touchDragged = false;
+            this.onMouseDown(asMouse(touch));
+            
+            this.holdTimer = setTimeout(() => {
+                if (this.touchDragged || this.isLerping || App.curationMode) return;
+                this.holdWalking = true;
+                this.move.forward = true;
+            }, HOLD_MS);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = trackedTouch(e);
+            if (!touch) return;
+            
+            const travel = Math.hypot(touch.clientX - this.touchStart.x, touch.clientY - this.touchStart.y);
+            if (travel > TAP_SLOP_PX) {
+                this.touchDragged = true;
+                clearTimeout(this.holdTimer);
+            }
+            this.onMouseMove(asMouse(touch)); // Steers while walking, looks otherwise
+        }, { passive: false });
+        
+        const endTouch = (e) => {
+            const touch = trackedTouch(e);
+            if (!touch) return;
+            this.touchId = null;
+            clearTimeout(this.holdTimer);
+            
+            const wasWalking = this.holdWalking;
+            if (wasWalking) {
+                this.holdWalking = false;
+                this.move.forward = false;
+            }
+            
+            const isTap = !wasWalking && !this.touchDragged && !App.curationMode && e.type === 'touchend';
+            if (!isTap) {
+                this.hasMoved = true; // Keeps the mouse handler from treating this as a click
+                this.onMouseUp(asMouse(touch));
+                return;
+            }
+            
+            this.isMouseDown = false;
+            const tapped = App.artworkAt(touch.clientX, touch.clientY);
+            if (tapped) App.inspectArtwork(tapped);
+            else if (this.isInspecting) App.closeInspection();
+        };
+        canvas.addEventListener('touchend', endTouch);
+        canvas.addEventListener('touchcancel', endTouch);
+        
+        document.querySelectorAll('#touch-pad button').forEach(button => {
+            const direction = button.dataset.move;
+            const setWalking = (walking) => { this.move[direction] = walking; };
+            
+            button.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                button.setPointerCapture(e.pointerId);
+                setWalking(true);
+            });
+            ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
+                button.addEventListener(type, () => setWalking(false));
+            });
+            button.addEventListener('contextmenu', (e) => e.preventDefault());
+        });
     }
     
     onKeyDown(e) {
@@ -1476,6 +1664,7 @@ class GalleryControls {
                         z: art.group.position.z,
                         rotY: art.group.rotation.y
                     };
+                    App.keepManualPlacement(dbWork);
                     Storage.save(App.data);
                 }
             }
@@ -1642,6 +1831,11 @@ class GalleryControls {
 
 // === UI MANAGING SYSTEM ===
 const UI = {
+    showLoadError(message) {
+        document.getElementById('loading-message').innerText = message;
+        document.getElementById('btn-retry').hidden = false;
+    },
+    
     init() {
         this.setupButtons();
         this.setupForms();
@@ -1689,7 +1883,8 @@ const UI = {
         document.getElementById('btn-add').onclick = () => {
             this.showModal('modal-upload');
             document.getElementById('form-upload').reset();
-            document.getElementById('modal-upload-title').innerText = 'Add New Artwork';
+            document.getElementById('modal-upload-title').innerText = 'Add artwork';
+            document.getElementById('file-preview').removeAttribute('src');
             document.getElementById('file-preview-container').style.display = 'none';
             document.getElementById('input-id').value = '';
             document.getElementById('preset-fields').style.display = 'none';
@@ -1697,7 +1892,7 @@ const UI = {
         
         document.getElementById('btn-about').onclick = () => {
             this.showModal('modal-about');
-            document.getElementById('about-gallery-name').value = App.data.galleryName || 'Antigravity';
+            document.getElementById('about-gallery-name').value = App.data.galleryName || '1116 Gallery';
             document.getElementById('about-gallery-name').readOnly = !Storage.isOwner;
             
             const listContainer = document.getElementById('about-exh-list');
@@ -1710,11 +1905,11 @@ const UI = {
                 grp.innerHTML = `
                     <div class="form-group" style="margin-bottom: 0.5rem;">
                         <label>Exhibition Title ${idx + 1}</label>
-                        <input type="text" class="about-exh-title-input" data-id="${exh.id}" value="${exh.name}" required>
+                        <input type="text" class="about-exh-title-input" data-id="${escapeHtml(exh.id)}" value="${escapeHtml(exh.name)}" required>
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
                         <label>Exhibition Description</label>
-                        <textarea class="about-exh-desc-input" data-id="${exh.id}" rows="2">${exh.description || ''}</textarea>
+                        <textarea class="about-exh-desc-input" data-id="${escapeHtml(exh.id)}" rows="2">${escapeHtml(exh.description)}</textarea>
                     </div>
                 `;
                 listContainer.appendChild(grp);
@@ -1723,6 +1918,8 @@ const UI = {
                 field.readOnly = !Storage.isOwner;
             });
         };
+        
+        this.setupBackupMenu();
         
         document.getElementById('btn-export').onclick = () => Storage.export();
         
@@ -1790,6 +1987,28 @@ const UI = {
         document.getElementById('btn-curation-deselect').onclick = () => App.deselectCurationArtwork();
     },
     
+    setupBackupMenu() {
+        const toggle = document.getElementById('btn-backup');
+        const menu = document.getElementById('backup-menu');
+        
+        const setOpen = (open) => {
+            menu.hidden = !open;
+            toggle.setAttribute('aria-expanded', String(open));
+        };
+        
+        toggle.onclick = () => setOpen(menu.hidden);
+        menu.addEventListener('click', () => setOpen(false));
+        document.addEventListener('click', (e) => {
+            if (!menu.hidden && !e.target.closest('.nav-menu-wrap')) setOpen(false);
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !menu.hidden) {
+                setOpen(false);
+                toggle.focus();
+            }
+        });
+    },
+    
     setupForms() {
         document.getElementById('toggle-preset-fields').onchange = (e) => {
             document.getElementById('preset-fields').style.display = e.target.checked ? 'block' : 'none';
@@ -1816,7 +2035,7 @@ const UI = {
             const isEdit = !!document.getElementById('input-id').value;
             const previewImg = document.getElementById('file-preview');
             
-            if (!isEdit && (!previewImg.src || previewImg.src.includes('window.location'))) {
+            if (!isEdit && !previewImg.getAttribute('src')) {
                 alert('Please upload an image file for the new artwork.');
                 return;
             }
@@ -1867,10 +2086,6 @@ const UI = {
                 App.data.artworks.push(workData);
             }
             
-            // Clean unused exhibitions
-            const activeExhs = new Set(App.data.artworks.map(a => (a.exhibition || 'General Collection').toLowerCase()));
-            App.data.exhibitions = App.data.exhibitions.filter(ex => activeExhs.has(ex.name.toLowerCase()) || ex.name === 'General Collection');
-            
             Storage.save(App.data);
             App.reconstructGallery();
             this.hideModal('modal-upload');
@@ -1878,7 +2093,7 @@ const UI = {
         
         // Save About Gallery modal changes
         document.getElementById('btn-save-about').onclick = () => {
-            App.data.galleryName = document.getElementById('about-gallery-name').value.trim() || 'Antigravity';
+            App.data.galleryName = document.getElementById('about-gallery-name').value.trim() || '1116 Gallery';
             
             const titleInputs = document.querySelectorAll('.about-exh-title-input');
             const descInputs = document.querySelectorAll('.about-exh-desc-input');
@@ -2062,6 +2277,7 @@ const UI = {
                 if (!dbWork.preset) dbWork.preset = {};
                 // Force space theme style if floating void triggered
                 dbWork.preset.space_type = checkFloat.checked ? 'cyber_void' : 'gallery';
+                App.keepManualPlacement(dbWork);
                 Storage.save(App.data);
             }
         };
@@ -2137,7 +2353,7 @@ const UI = {
     
     updateExhibitionInfo(title, desc) {
         document.getElementById('zone-exh-title').innerText = title;
-        document.getElementById('zone-gallery-title').innerText = App.data.galleryName || 'Antigravity';
+        document.getElementById('zone-gallery-title').innerText = App.data.galleryName || '1116 Gallery';
     },
     
     showDocent(work) {
@@ -2150,10 +2366,10 @@ const UI = {
         document.getElementById('docent-exh').innerText = work.exhibition || 'General Collection';
         document.getElementById('docent-notes').innerText = work.notes || 'No process notes.';
         
-        const dateStr = work.date ? new Date(work.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short' }) : 'Unknown Date';
+        const dateStr = work.date ? new Date(work.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', timeZone: 'UTC' }) : 'Unknown Date';
         document.getElementById('docent-meta').innerHTML = `
             <span class="meta-badge">${dateStr}</span>
-            <span class="meta-badge">${work.medium || 'Unknown Medium'}</span>
+            <span class="meta-badge">${escapeHtml(work.medium || 'Unknown Medium')}</span>
         `;
         
     },
@@ -2188,8 +2404,8 @@ const UI = {
             header.className = 'exhibition-title-header';
             header.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span>${exhName}</span>
-                    <span class="exh-settings-icon" data-name="${exhName}">⚙️</span>
+                    <span>${escapeHtml(exhName)}</span>
+                    <span class="exh-settings-icon" data-name="${escapeHtml(exhName)}">⚙️</span>
                 </div>
                 <span style="font-size:0.75rem; opacity:0.6">${groups[exhName].length} works</span>
             `;
@@ -2219,13 +2435,13 @@ const UI = {
                     workDiv.classList.add('active');
                 }
                 
-                const dateStr = work.date ? new Date(work.date).toLocaleDateString(undefined, { year: 'numeric' }) : 'N/A';
+                const dateStr = work.date ? new Date(work.date).toLocaleDateString(undefined, { year: 'numeric', timeZone: 'UTC' }) : 'N/A';
                 
                 workDiv.innerHTML = `
-                    <img src="${work.imageBase64}" class="work-thumb">
+                    <img src="${escapeHtml(work.imageBase64)}" class="work-thumb" alt="">
                     <div class="work-info">
-                        <div class="work-name">${work.title}</div>
-                        <div class="work-date-med">${dateStr} · ${work.medium}</div>
+                        <div class="work-name">${escapeHtml(work.title)}</div>
+                        <div class="work-date-med">${dateStr} · ${escapeHtml(work.medium)}</div>
                     </div>
                 `;
                 
@@ -2283,6 +2499,7 @@ const Storage = {
     syncedWorks: new Map(), // artwork id -> JSON last written to Firestore
     syncedMeta: null,
     saveTimer: null,
+    statusTimer: null,
     dirty: false,
     queue: Promise.resolve(),
     
@@ -2291,31 +2508,27 @@ const Storage = {
     },
     
     async load() {
-        try {
-            const [metaSnap, worksSnap] = await Promise.all([
-                this.db().doc(this.META_DOC).get(),
-                this.db().collection(this.WORKS).get()
-            ]);
-            this.cloudAvailable = true;
-            
-            if (metaSnap.exists) {
-                const meta = metaSnap.data();
-                const order = meta.artworkOrder || [];
-                const rank = (work) => {
-                    const i = order.indexOf(work.id);
-                    return i === -1 ? order.length : i;
-                };
-                const data = {
-                    galleryName: meta.galleryName,
-                    exhibitions: meta.exhibitions || [],
-                    artworks: worksSnap.docs.map(doc => doc.data()).sort((a, b) => rank(a) - rank(b))
-                };
-                this.cloudHasGallery = true;
-                this.markSynced(data);
-                return data;
-            }
-        } catch (err) {
-            console.error('Could not load the gallery from Firestore, showing samples.', err);
+        const [metaSnap, worksSnap] = await Promise.all([
+            this.db().doc(this.META_DOC).get(),
+            this.db().collection(this.WORKS).get()
+        ]);
+        this.cloudAvailable = true;
+        
+        if (metaSnap.exists) {
+            const meta = metaSnap.data();
+            const order = meta.artworkOrder || [];
+            const rank = (work) => {
+                const i = order.indexOf(work.id);
+                return i === -1 ? order.length : i;
+            };
+            const data = {
+                galleryName: meta.galleryName,
+                exhibitions: meta.exhibitions || [],
+                artworks: worksSnap.docs.map(doc => doc.data()).sort((a, b) => rank(a) - rank(b))
+            };
+            this.cloudHasGallery = true;
+            this.markSynced(data);
+            return data;
         }
         
         return this.defaultData();
@@ -2323,7 +2536,7 @@ const Storage = {
     
     defaultData() {
         return {
-            galleryName: "Shua's Archive",
+            galleryName: "1116 Gallery",
             exhibitions: [
                 { 
                     id: 'exh-1', 
@@ -2341,7 +2554,7 @@ const Storage = {
                     style: 'cyber_void',
                     bgm: 'lo-fi',
                     layout_mode: 'auto',
-                    lights: { type: 'point', color: '#00f2fe', intensity: 1.5 }
+                    lights: { type: 'point', color: '#fff0d0', intensity: 1.5 }
                 },
                 { 
                     id: 'exh-3', 
@@ -2359,7 +2572,7 @@ const Storage = {
     
     metaOf(data) {
         return {
-            galleryName: data.galleryName || 'Antigravity',
+            galleryName: data.galleryName || '1116 Gallery',
             exhibitions: data.exhibitions,
             artworkOrder: data.artworks.map(work => work.id)
         };
@@ -2372,7 +2585,11 @@ const Storage = {
     
     // Callers fire this on every edit (sliders included), so writes are batched
     save(data) {
-        if (!this.isOwner) return;
+        if (!this.isOwner) {
+            this.showStatus('Not saved. Sign in to make changes.');
+            return;
+        }
+        this.showStatus('Saving…');
         this.dirty = true;
         clearTimeout(this.saveTimer);
         this.saveTimer = setTimeout(() => this.flush(data), 600);
@@ -2381,8 +2598,11 @@ const Storage = {
     flush(data) {
         clearTimeout(this.saveTimer);
         this.saveTimer = null;
-        this.queue = this.queue.then(() => this.sync(data)).catch((err) => {
+        this.queue = this.queue.then(() => this.sync(data)).then(() => {
+            if (!this.saveTimer) this.showStatus('Saved', 2500);
+        }).catch((err) => {
             console.error('Failed to save to Firestore.', err);
+            this.showStatus('Not saved');
             alert(`Your changes could not be saved: ${err.message}`);
             throw err;
         }).finally(() => {
@@ -2391,6 +2611,17 @@ const Storage = {
         const result = this.queue;
         this.queue = result.catch(() => {});
         return result;
+    },
+    
+    // Pass hideAfterMs for messages that should clear on their own
+    showStatus(text, hideAfterMs) {
+        const status = document.getElementById('save-status');
+        clearTimeout(this.statusTimer);
+        status.innerText = text;
+        status.hidden = false;
+        if (hideAfterMs) {
+            this.statusTimer = setTimeout(() => { status.hidden = true; }, hideAfterMs);
+        }
     },
     
     // Writes only what changed since the last successful sync
@@ -2497,7 +2728,7 @@ const Storage = {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${(data.galleryName || 'Antigravity').replace(/\s+/g, '_')}_archive.json`;
+        a.download = `${(data.galleryName || '1116 Gallery').replace(/\s+/g, '_')}_archive.json`;
         a.click();
     },
     
@@ -2511,10 +2742,13 @@ const Storage = {
                 console.error('Archive is not valid JSON.', err);
             }
             if (!this.isValidArchive(data)) {
-                alert('Failed to import. Invalid JSON archive format.');
+                alert('This file is not a gallery backup. Choose a file made with Download backup.');
                 return;
             }
-            if (confirm('Importing this archive will overwrite your current gallery. Proceed?')) {
+            const countWorks = (n) => `${n} ${n === 1 ? 'work' : 'works'}`;
+            const replaced = countWorks(App.data.artworks.length);
+            const restored = countWorks(data.artworks.length);
+            if (confirm(`Replace the ${replaced} in the gallery with the ${restored} in this backup? This can't be undone.`)) {
                 await this.replaceAll(data);
             }
         };
@@ -2784,17 +3018,12 @@ const Storage = {
 
 // === OWNER SIGN-IN ===
 // Firestore rules decide who the owner is, so no account details live in this file.
-// The sign-in button only appears on the #admin URL; visitors never see it.
 const Auth = {
     init() {
         if (!window.firebase) return;
         
         const login = document.getElementById('btn-login');
         const logout = document.getElementById('btn-logout');
-        const refreshLoginButton = () => {
-            login.hidden = !!firebase.auth().currentUser || window.location.hash !== '#admin';
-        };
-        
         login.onclick = () => {
             document.getElementById('form-login').reset();
             document.getElementById('login-error').hidden = true;
@@ -2802,15 +3031,15 @@ const Auth = {
         };
         document.getElementById('form-login').onsubmit = (e) => this.submitLogin(e);
         logout.onclick = () => firebase.auth().signOut().then(() => window.location.reload());
-        window.addEventListener('hashchange', refreshLoginButton);
         
         firebase.auth().onAuthStateChanged(async (user) => {
             logout.hidden = !user;
-            refreshLoginButton();
+            login.hidden = !!user;
             
             const isOwner = !!user && await this.checkOwner(user);
             Storage.isOwner = isOwner;
             document.body.classList.toggle('is-owner', isOwner);
+            App.syncTopOffset();
             UI.syncSidebar();
             if (isOwner) await Storage.offerLegacyUpload();
         });
