@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner() {
+      return request.auth != null && request.auth.uid == 'Gon8atbAGpOff4CSBO2dXp3G68G3';
+    }
+
+    match /galleries/{galleryId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    match /artworks/{artworkId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    match /private/{docId} {
+      allow read, write: if isOwner();
+    }
+  }
+}
