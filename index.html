@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Antigravity - Virtual 3D Archive & Portfolio Gallery</title>
+    <title>1116 Gallery</title>
     <!-- Modern Styling -->
     <link rel="stylesheet" href="style.css">
 </head>
@@ -19,21 +19,34 @@
     <header id="top-bar">
         <div id="brand" onclick="window.location.reload();">
             <div id="brand-logo"></div>
-            <span id="gallery-title">Antigravity</span>
+            <span id="gallery-title">1116 Gallery</span>
         </div>
-        <div class="nav-buttons">
-            <button id="btn-curation" class="secondary owner-only" style="border-color: rgba(0, 242, 254, 0.3);">Curation: OFF</button>
-            <button id="btn-bgm" class="secondary icon-only" title="Toggle Background Music">♪ ON</button>
-            <button id="btn-add" class="primary owner-only">＋ Add Work</button>
-            <button id="btn-works" class="secondary">Archive</button>
-            <button id="btn-about" class="secondary">Gallery Info</button>
-            <button id="btn-export" class="secondary owner-only">Export</button>
-            <button id="btn-import" class="secondary owner-only">Import</button>
-            <button id="btn-help" class="secondary">? Help</button>
-            <button id="btn-fullscreen" class="secondary icon-only">⛶</button>
-            <button id="btn-login" class="secondary" hidden>Sign in</button>
-            <button id="btn-logout" class="secondary" hidden>Sign out</button>
-        </div>
+        <nav class="nav-buttons" aria-label="Gallery">
+            <div class="nav-group">
+                <button id="btn-works" class="secondary">Archive</button>
+                <button id="btn-about" class="secondary">Gallery Info</button>
+                <button id="btn-help" class="secondary">? Help</button>
+                <button id="btn-bgm" class="secondary" title="Toggle Background Music">♪ OFF</button>
+                <button id="btn-fullscreen" class="secondary icon-only" title="Toggle fullscreen">⛶</button>
+            </div>
+            <div class="nav-group nav-group-owner owner-only">
+                <button id="btn-curation" class="secondary">Curation: OFF</button>
+                <div class="nav-menu-wrap">
+                    <button id="btn-backup" class="secondary" aria-expanded="false" aria-controls="backup-menu">Backup <span aria-hidden="true">▾</span></button>
+                    <div id="backup-menu" class="nav-menu" hidden>
+                        <button id="btn-export" class="nav-menu-item">
+                            <span class="nav-menu-title">Download backup</span>
+                            <span class="nav-menu-note">Saves every work to a file on this computer.</span>
+                        </button>
+                        <button id="btn-import" class="nav-menu-item nav-menu-item-danger">
+                            <span class="nav-menu-title">Restore from backup</span>
+                            <span class="nav-menu-note">Replaces the whole gallery with a backup file.</span>
+                        </button>
+                    </div>
+                </div>
+                <button id="btn-add" class="primary">＋ Add artwork</button>
+            </div>
+        </nav>
     </header>
 
     <!-- Sidebar Left: Collapsible menu listing exhibitions & works -->
@@ -53,7 +66,7 @@
     <!-- Sidebar Right: Virtual Caption Docent details -->
     <aside id="docent-panel" class="panel">
         <div class="panel-header">
-            <h2 style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Virtual Caption</h2>
+            <h2>Virtual Caption</h2>
             <span class="close-btn" id="close-docent">&times;</span>
         </div>
         <div class="panel-content">
@@ -68,22 +81,29 @@
             <div id="docent-notes">Artist commentary and process notes...</div>
             <div style="display: flex; gap: 0.75rem; margin-top: auto; padding-top: 1rem;">
                 <button id="btn-edit-work" class="secondary owner-only" style="flex: 1; justify-content: center;">Edit</button>
-                <button id="btn-delete-work" class="owner-only" style="background: rgba(231, 76, 60, 0.2); border-color: rgba(231, 76, 60, 0.4); color: #ff6b6b; flex: 1; justify-content: center;">Delete</button>
+                <button id="btn-delete-work" class="owner-only danger" style="flex: 1; justify-content: center;">Delete</button>
             </div>
         </div>
     </aside>
 
     <!-- Bottom Left HUD: Active Room / Exhibition Spatial zone tracker -->
     <div id="zone-indicator">
-        <span id="zone-gallery-title">Antigravity Gallery</span>
+        <span id="zone-gallery-title">1116 Gallery</span>
         <span id="zone-exh-title">Main Lobby</span>
+    </div>
+
+    <!-- Bottom Right: Owner sign-in, kept away from the gallery controls -->
+    <div id="auth-corner">
+        <span id="save-status" role="status" hidden></span>
+        <button id="btn-login" class="secondary" hidden>Sign in</button>
+        <button id="btn-logout" class="secondary" hidden>Sign out</button>
     </div>
 
     <!-- Upload / Edit Artwork Modal Overlay -->
     <div id="modal-upload" class="overlay">
         <div class="modal">
             <span class="close-btn" onclick="UI.hideModal('modal-upload')">&times;</span>
-            <h2 id="modal-upload-title">Add New Artwork</h2>
+            <h2 id="modal-upload-title">Add artwork</h2>
             <form id="form-upload" style="margin-top: 1.5rem;">
                 <div class="form-group">
                     <label>Upload Artwork Image</label>
@@ -169,7 +189,7 @@
                     <input type="text" id="about-gallery-name">
                 </div>
                 
-                <h3 style="font-size: 0.95rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.75rem; font-weight: 700;">Exhibition Metadata & Summaries</h3>
+                <h3 style="font-size: 0.95rem; color: var(--text-muted); margin-bottom: 0.75rem; font-weight: 700;">Exhibition Metadata & Summaries</h3>
                 <div id="about-exh-list" style="max-height: 250px; overflow-y: auto; padding-right: 0.5rem;">
                     <!-- List of exhibitions injected by app.js -->
                 </div>
@@ -193,7 +213,7 @@
                     <label for="input-login-password">Password</label>
                     <input type="password" id="input-login-password" required autocomplete="current-password">
                 </div>
-                <p id="login-error" role="alert" style="color: #ff6b6b; font-size: 0.85rem;" hidden></p>
+                <p id="login-error" role="alert" style="color: var(--danger); font-size: 0.85rem;" hidden></p>
                 <button id="btn-login-submit" type="submit" class="primary" style="width: 100%; justify-content: center; margin-top: 1rem;">Sign In</button>
             </form>
         </div>
@@ -224,7 +244,7 @@
     <!-- Sidebar Right: Curation Controls -->
     <aside id="curation-panel" class="panel" style="top: 75px; right: 20px; width: 360px; max-height: calc(100vh - 95px); display: flex; flex-direction: column; overflow: hidden; transform: translateX(400px); opacity: 0;">
         <div class="panel-header">
-            <h2 style="font-size: 0.8rem; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 1px;">Curation Controls</h2>
+            <h2>Curation Controls</h2>
             <span class="close-btn" id="close-curation">&times;</span>
         </div>
         <div class="panel-content" style="overflow-y: auto;">
@@ -277,7 +297,7 @@
                     <textarea id="exh-settings-desc" rows="3" placeholder="Describe the themes and aesthetics of this room..."></textarea>
                 </div>
                 
-                <h3 style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.75rem; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.25rem;">Spatial Style & Aesthetics</h3>
+                <h3 style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem; font-weight: 700; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.25rem;">Spatial Style & Aesthetics</h3>
                 
                 <div class="form-row">
                     <div class="form-group">
@@ -330,7 +350,7 @@
                 
                 <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
                     <button type="submit" class="primary" style="flex: 2; justify-content: center;">Save Settings</button>
-                    <button id="btn-delete-exh" type="button" style="background: rgba(231, 76, 60, 0.2); border-color: rgba(231, 76, 60, 0.4); color: #ff6b6b; flex: 1; justify-content: center;">Delete Room</button>
+                    <button id="btn-delete-exh" type="button" class="danger" style="flex: 1; justify-content: center;">Delete Room</button>
                 </div>
             </form>
         </div>
