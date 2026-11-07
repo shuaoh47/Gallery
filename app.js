@@ -12,6 +12,39 @@ const ProceduralBGM = {
     crackleNode: null,
     intervalId: null,
     isPlaying: false,
+    MUTED_KEY: 'gallery_bgm_muted',
+    muted: false,
+
+    // Remembers the viewer's choice; browsers that block storage just start with music on
+    loadPreference() {
+        try {
+            this.muted = localStorage.getItem(this.MUTED_KEY) === 'true';
+        } catch (err) {
+            this.muted = false;
+        }
+        this.syncButton();
+    },
+
+    toggleMuted() {
+        this.muted = !this.muted;
+        try {
+            localStorage.setItem(this.MUTED_KEY, String(this.muted));
+        } catch (err) {
+            console.warn('Could not remember the music setting.', err);
+        }
+        
+        if (this.ctx) {
+            if (this.muted) this.ctx.suspend();
+            else this.ctx.resume();
+        }
+        this.syncButton();
+    },
+
+    syncButton() {
+        const button = document.getElementById('btn-bgm');
+        button.innerText = this.muted ? '♪ OFF' : '♪ ON';
+        button.setAttribute('aria-pressed', String(!this.muted));
+    },
 
     init() {
         if (this.ctx) return;
@@ -22,10 +55,12 @@ const ProceduralBGM = {
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.setValueAtTime(0.4, this.ctx.currentTime);
         this.masterGain.connect(this.ctx.destination);
+        
+        if (this.muted) this.ctx.suspend();
     },
 
     resume() {
-        if (this.ctx && this.ctx.state === 'suspended') {
+        if (this.ctx && this.ctx.state === 'suspended' && !this.muted) {
             this.ctx.resume();
         }
     },
@@ -392,10 +427,10 @@ const App = {
     curationMode: false,
     selectedHelper: null,
     
-    init() {
+    async init() {
         try {
             // Load database
-            this.data = Storage.load();
+            this.data = await Storage.load();
             
             // Set up Three.js components
             this.scene = new THREE.Scene();
@@ -417,6 +452,9 @@ const App = {
             // Build custom controls
             this.setupControls();
             
+            // Must run before the first room starts its music
+            ProceduralBGM.loadPreference();
+            
             // Populate/Render the gallery space
             this.reconstructGallery();
             
@@ -428,6 +466,9 @@ const App = {
             
             // Start render loop
             this.animate();
+            
+            // Owner sign-in (visitors stay in read-only mode)
+            Auth.init();
             
             console.log("Virtual 3D Gallery Initialized.");
         } catch (err) {
@@ -1657,6 +1698,7 @@ const UI = {
         document.getElementById('btn-about').onclick = () => {
             this.showModal('modal-about');
             document.getElementById('about-gallery-name').value = App.data.galleryName || 'Antigravity';
+            document.getElementById('about-gallery-name').readOnly = !Storage.isOwner;
             
             const listContainer = document.getElementById('about-exh-list');
             listContainer.innerHTML = '';
@@ -1677,6 +1719,9 @@ const UI = {
                 `;
                 listContainer.appendChild(grp);
             });
+            listContainer.querySelectorAll('input, textarea').forEach(field => {
+                field.readOnly = !Storage.isOwner;
+            });
         };
         
         document.getElementById('btn-export').onclick = () => Storage.export();
@@ -1694,6 +1739,7 @@ const UI = {
         };
         
         document.getElementById('btn-help').onclick = () => this.showModal('modal-help');
+        document.getElementById('btn-bgm').onclick = () => ProceduralBGM.toggleMuted();
         document.getElementById('btn-fullscreen').onclick = () => this.toggleFullscreen();
         
         // Details caption buttons
@@ -1753,8 +1799,9 @@ const UI = {
             const file = e.target.files[0];
             if (file) {
                 const reader = new FileReader();
-                reader.onload = (re) => {
-                    document.getElementById('file-preview').src = re.target.result;
+                reader.onload = async (re) => {
+                    // Firestore documents are limited to 1 MiB, so shrink before previewing
+                    document.getElementById('file-preview').src = await Storage.shrinkImage(re.target.result);
                     document.getElementById('file-preview-container').style.display = 'block';
                 };
                 reader.readAsDataURL(file);
@@ -2225,19 +2272,57 @@ const UI = {
 
 // === DATABASE MANAGEMENT / STORAGE ===
 const Storage = {
-    KEY: 'antigravity_archive',
+    LEGACY_KEY: 'antigravity_archive', // Pre-Firebase data kept in this browser
+    META_DOC: 'galleries/main',
+    WORKS: 'artworks',
+    MAX_IMAGE_CHARS: 900000, // Leaves room under Firestore's 1 MiB document limit
     
-    load() {
-        const stored = localStorage.getItem(this.KEY);
-        if (stored) {
-            try {
-                return JSON.parse(stored);
-            } catch (e) {
-                console.error("Local storage parse failure, loading defaults.");
+    isOwner: false,
+    cloudAvailable: false,
+    cloudHasGallery: false,
+    syncedWorks: new Map(), // artwork id -> JSON last written to Firestore
+    syncedMeta: null,
+    saveTimer: null,
+    dirty: false,
+    queue: Promise.resolve(),
+    
+    db() {
+        return firebase.firestore();
+    },
+    
+    async load() {
+        try {
+            const [metaSnap, worksSnap] = await Promise.all([
+                this.db().doc(this.META_DOC).get(),
+                this.db().collection(this.WORKS).get()
+            ]);
+            this.cloudAvailable = true;
+            
+            if (metaSnap.exists) {
+                const meta = metaSnap.data();
+                const order = meta.artworkOrder || [];
+                const rank = (work) => {
+                    const i = order.indexOf(work.id);
+                    return i === -1 ? order.length : i;
+                };
+                const data = {
+                    galleryName: meta.galleryName,
+                    exhibitions: meta.exhibitions || [],
+                    artworks: worksSnap.docs.map(doc => doc.data()).sort((a, b) => rank(a) - rank(b))
+                };
+                this.cloudHasGallery = true;
+                this.markSynced(data);
+                return data;
             }
+        } catch (err) {
+            console.error('Could not load the gallery from Firestore, showing samples.', err);
         }
         
-        const defaultData = {
+        return this.defaultData();
+    },
+    
+    defaultData() {
+        return {
             galleryName: "Shua's Archive",
             exhibitions: [
                 { 
@@ -2270,17 +2355,144 @@ const Storage = {
             ],
             artworks: this.generateSampleArtworks()
         };
-        
-        this.save(defaultData);
-        return defaultData;
     },
     
+    metaOf(data) {
+        return {
+            galleryName: data.galleryName || 'Antigravity',
+            exhibitions: data.exhibitions,
+            artworkOrder: data.artworks.map(work => work.id)
+        };
+    },
+    
+    markSynced(data) {
+        this.syncedWorks = new Map(data.artworks.map(work => [work.id, JSON.stringify(work)]));
+        this.syncedMeta = JSON.stringify(this.metaOf(data));
+    },
+    
+    // Callers fire this on every edit (sliders included), so writes are batched
     save(data) {
-        localStorage.setItem(this.KEY, JSON.stringify(data));
+        if (!this.isOwner) return;
+        this.dirty = true;
+        clearTimeout(this.saveTimer);
+        this.saveTimer = setTimeout(() => this.flush(data), 600);
+    },
+    
+    flush(data) {
+        clearTimeout(this.saveTimer);
+        this.saveTimer = null;
+        this.queue = this.queue.then(() => this.sync(data)).catch((err) => {
+            console.error('Failed to save to Firestore.', err);
+            alert(`Your changes could not be saved: ${err.message}`);
+            throw err;
+        }).finally(() => {
+            if (!this.saveTimer) this.dirty = false;
+        });
+        const result = this.queue;
+        this.queue = result.catch(() => {});
+        return result;
+    },
+    
+    // Writes only what changed since the last successful sync
+    async sync(data) {
+        if (!this.cloudAvailable) {
+            throw new Error('The gallery database could not be reached. Reload and try again.');
+        }
+        
+        for (const work of data.artworks) {
+            const json = JSON.stringify(work);
+            if (this.syncedWorks.get(work.id) === json) continue;
+            if ((work.imageBase64 || '').length > 1000000) {
+                throw new Error(`"${work.title}" is too large to store.`);
+            }
+            await this.db().collection(this.WORKS).doc(work.id).set(JSON.parse(json));
+            this.syncedWorks.set(work.id, json);
+        }
+        
+        const liveIds = new Set(data.artworks.map(work => work.id));
+        for (const id of [...this.syncedWorks.keys()]) {
+            if (liveIds.has(id)) continue;
+            await this.db().collection(this.WORKS).doc(id).delete();
+            this.syncedWorks.delete(id);
+        }
+        
+        const meta = JSON.stringify(this.metaOf(data));
+        if (meta !== this.syncedMeta) {
+            await this.db().doc(this.META_DOC).set(JSON.parse(meta));
+            this.syncedMeta = meta;
+        }
+        this.cloudHasGallery = true;
+    },
+    
+    // Replaces the whole gallery, then reloads to show it
+    async replaceAll(data) {
+        for (const work of data.artworks) {
+            work.imageBase64 = await this.shrinkImage(work.imageBase64);
+        }
+        await this.flush(data);
+        window.location.reload();
+    },
+    
+    // Resizes an image data URL until it fits in a Firestore document
+    shrinkImage(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onerror = () => reject(new Error('This image could not be read.'));
+            img.onload = () => {
+                let maxSide = 1600;
+                if (src.length <= this.MAX_IMAGE_CHARS && Math.max(img.width, img.height) <= maxSide) {
+                    resolve(src);
+                    return;
+                }
+                
+                let quality = 0.85;
+                while (true) {
+                    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round(img.width * scale);
+                    canvas.height = Math.round(img.height * scale);
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff'; // JPEG has no transparency
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    const result = canvas.toDataURL('image/jpeg', quality);
+                    if (result.length <= this.MAX_IMAGE_CHARS || maxSide < 400) {
+                        resolve(result);
+                        return;
+                    }
+                    if (quality > 0.6) quality -= 0.1;
+                    else maxSide *= 0.8;
+                }
+            };
+            img.src = src;
+        });
+    },
+    
+    // One-time move of works saved in this browser before Firebase was connected
+    async offerLegacyUpload() {
+        if (this.cloudHasGallery || !this.cloudAvailable) return;
+        
+        let legacy = null;
+        try {
+            legacy = JSON.parse(localStorage.getItem(this.LEGACY_KEY));
+        } catch (err) {
+            console.error('Could not read the gallery saved in this browser.', err);
+        }
+        if (!this.isValidArchive(legacy)) return;
+        
+        if (confirm(`Upload the ${legacy.artworks.length} works saved in this browser to the online gallery?`)) {
+            await this.replaceAll(legacy);
+        }
+    },
+    
+    isValidArchive(data) {
+        return !!data && Array.isArray(data.exhibitions) && Array.isArray(data.artworks) &&
+            data.artworks.every(work => work && work.id && typeof work.imageBase64 === 'string');
     },
     
     export() {
-        const data = this.load();
+        const data = App.data;
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -2291,15 +2503,19 @@ const Storage = {
     
     import(file) {
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
+            let data = null;
             try {
-                const data = JSON.parse(e.target.result);
-                if (confirm('Importing this archive will overwrite your current gallery. Proceed?')) {
-                    this.save(data);
-                    window.location.reload();
-                }
+                data = JSON.parse(e.target.result);
             } catch (err) {
+                console.error('Archive is not valid JSON.', err);
+            }
+            if (!this.isValidArchive(data)) {
                 alert('Failed to import. Invalid JSON archive format.');
+                return;
+            }
+            if (confirm('Importing this archive will overwrite your current gallery. Proceed?')) {
+                await this.replaceAll(data);
             }
         };
         reader.readAsText(file);
@@ -2565,6 +2781,87 @@ const Storage = {
         return artworks;
     }
 };
+
+// === OWNER SIGN-IN ===
+// Firestore rules decide who the owner is, so no account details live in this file.
+// The sign-in button only appears on the #admin URL; visitors never see it.
+const Auth = {
+    init() {
+        if (!window.firebase) return;
+        
+        const login = document.getElementById('btn-login');
+        const logout = document.getElementById('btn-logout');
+        const refreshLoginButton = () => {
+            login.hidden = !!firebase.auth().currentUser || window.location.hash !== '#admin';
+        };
+        
+        login.onclick = () => {
+            document.getElementById('form-login').reset();
+            document.getElementById('login-error').hidden = true;
+            UI.showModal('modal-login');
+        };
+        document.getElementById('form-login').onsubmit = (e) => this.submitLogin(e);
+        logout.onclick = () => firebase.auth().signOut().then(() => window.location.reload());
+        window.addEventListener('hashchange', refreshLoginButton);
+        
+        firebase.auth().onAuthStateChanged(async (user) => {
+            logout.hidden = !user;
+            refreshLoginButton();
+            
+            const isOwner = !!user && await this.checkOwner(user);
+            Storage.isOwner = isOwner;
+            document.body.classList.toggle('is-owner', isOwner);
+            UI.syncSidebar();
+            if (isOwner) await Storage.offerLegacyUpload();
+        });
+    },
+    
+    async submitLogin(e) {
+        e.preventDefault();
+        
+        const submit = document.getElementById('btn-login-submit');
+        const error = document.getElementById('login-error');
+        const email = document.getElementById('input-login-email').value.trim();
+        const password = document.getElementById('input-login-password').value;
+        
+        submit.disabled = true;
+        error.hidden = true;
+        try {
+            await firebase.auth().signInWithEmailAndPassword(email, password);
+            UI.hideModal('modal-login');
+        } catch (err) {
+            console.error('Sign-in failed.', err.code);
+            error.innerText = this.loginErrorMessage(err.code);
+            error.hidden = false;
+        } finally {
+            submit.disabled = false;
+        }
+    },
+    
+    loginErrorMessage(code) {
+        if (code === 'auth/too-many-requests') return 'Too many attempts. Please try again later.';
+        if (code === 'auth/network-request-failed') return 'Network error. Check your connection and try again.';
+        if (code === 'auth/operation-not-allowed') return 'Email sign-in is not enabled for this project.';
+        return 'Incorrect email or password.';
+    },
+    
+    // Only the owner may read this path, so a successful read proves ownership
+    async checkOwner(user) {
+        try {
+            await Storage.db().doc('private/owner-check').get();
+            return true;
+        } catch (err) {
+            console.error('Owner check failed.', err);
+            alert(`This account is not the gallery owner.\nUser ID: ${user.uid}`);
+            return false;
+        }
+    }
+};
+
+// Don't lose edits that are still waiting to be saved
+window.addEventListener('beforeunload', (e) => {
+    if (Storage.dirty) e.preventDefault();
+});
 
 // === BOOTSTRAP INITIALIZATION ===
 window.onload = () => {

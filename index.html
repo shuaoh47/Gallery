@@ -22,15 +22,17 @@
             <span id="gallery-title">Antigravity</span>
         </div>
         <div class="nav-buttons">
-            <button id="btn-curation" class="secondary" style="border-color: rgba(0, 242, 254, 0.3);">Curation: OFF</button>
+            <button id="btn-curation" class="secondary owner-only" style="border-color: rgba(0, 242, 254, 0.3);">Curation: OFF</button>
             <button id="btn-bgm" class="secondary icon-only" title="Toggle Background Music">♪ ON</button>
-            <button id="btn-add" class="primary">＋ Add Work</button>
+            <button id="btn-add" class="primary owner-only">＋ Add Work</button>
             <button id="btn-works" class="secondary">Archive</button>
             <button id="btn-about" class="secondary">Gallery Info</button>
-            <button id="btn-export" class="secondary">Export</button>
-            <button id="btn-import" class="secondary">Import</button>
+            <button id="btn-export" class="secondary owner-only">Export</button>
+            <button id="btn-import" class="secondary owner-only">Import</button>
             <button id="btn-help" class="secondary">? Help</button>
             <button id="btn-fullscreen" class="secondary icon-only">⛶</button>
+            <button id="btn-login" class="secondary" hidden>Sign in</button>
+            <button id="btn-logout" class="secondary" hidden>Sign out</button>
         </div>
     </header>
 
@@ -41,7 +43,7 @@
             <span class="close-btn" id="close-sidebar">&times;</span>
         </div>
         <div class="panel-content">
-            <button id="btn-new-exh" class="primary" style="margin-bottom: 1.25rem; width: 100%; justify-content: center; font-size: 0.85rem; padding: 0.6rem;">＋ New Exhibition</button>
+            <button id="btn-new-exh" class="primary owner-only" style="margin-bottom: 1.25rem; width: 100%; justify-content: center; font-size: 0.85rem; padding: 0.6rem;">＋ New Exhibition</button>
             <div id="sidebar-works-container">
                 <!-- Grouped exhibitions and works injected dynamically by app.js -->
             </div>
@@ -65,8 +67,8 @@
             </div>
             <div id="docent-notes">Artist commentary and process notes...</div>
             <div style="display: flex; gap: 0.75rem; margin-top: auto; padding-top: 1rem;">
-                <button id="btn-edit-work" class="secondary" style="flex: 1; justify-content: center;">Edit</button>
-                <button id="btn-delete-work" style="background: rgba(231, 76, 60, 0.2); border-color: rgba(231, 76, 60, 0.4); color: #ff6b6b; flex: 1; justify-content: center;">Delete</button>
+                <button id="btn-edit-work" class="secondary owner-only" style="flex: 1; justify-content: center;">Edit</button>
+                <button id="btn-delete-work" class="owner-only" style="background: rgba(231, 76, 60, 0.2); border-color: rgba(231, 76, 60, 0.4); color: #ff6b6b; flex: 1; justify-content: center;">Delete</button>
             </div>
         </div>
     </aside>
@@ -160,7 +162,7 @@
     <div id="modal-about" class="overlay">
         <div class="modal">
             <span class="close-btn" onclick="UI.hideModal('modal-about')">&times;</span>
-            <h2>Manage Gallery Info</h2>
+            <h2>Gallery Info</h2>
             <div style="margin-top: 1.5rem;">
                 <div class="form-group">
                     <label>Gallery Name</label>
@@ -172,8 +174,28 @@
                     <!-- List of exhibitions injected by app.js -->
                 </div>
                 
-                <button id="btn-save-about" class="primary" style="width: 100%; justify-content: center; margin-top: 1.5rem;">Save Changes</button>
+                <button id="btn-save-about" class="primary owner-only" style="width: 100%; justify-content: center; margin-top: 1.5rem;">Save Changes</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Owner Sign-in Modal Overlay -->
+    <div id="modal-login" class="overlay">
+        <div class="modal">
+            <span class="close-btn" onclick="UI.hideModal('modal-login')">&times;</span>
+            <h2>Owner Sign In</h2>
+            <form id="form-login" style="margin-top: 1.5rem;">
+                <div class="form-group">
+                    <label for="input-login-email">Email</label>
+                    <input type="email" id="input-login-email" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="input-login-password">Password</label>
+                    <input type="password" id="input-login-password" required autocomplete="current-password">
+                </div>
+                <p id="login-error" role="alert" style="color: #ff6b6b; font-size: 0.85rem;" hidden></p>
+                <button id="btn-login-submit" type="submit" class="primary" style="width: 100%; justify-content: center; margin-top: 1rem;">Sign In</button>
+            </form>
         </div>
     </div>
 
@@ -330,6 +352,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     
+    <!-- Firebase (Firestore database + Google sign-in for the gallery owner) -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
+
     <!-- Main Application Logic script -->
     <script src="app.js" defer></script>
 </body>

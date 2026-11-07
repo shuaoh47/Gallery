@@ -770,3 +770,14 @@ h2 {
     scale: 1.25;
 }
 
+/* Button display rules would otherwise override the hidden attribute */
+button[hidden],
+p[hidden] {
+    display: none !important;
+}
+
+/* Editing tools are only shown to the signed-in gallery owner */
+body:not(.is-owner) .owner-only,
+body:not(.is-owner) .exh-settings-icon {
+    display: none !important;
+}
