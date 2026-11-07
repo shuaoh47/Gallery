@@ -4,10 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>1116 Gallery</title>
+    <meta name="description" content="Walk through the rooms of 1116 Gallery, a 3D art gallery in your browser.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="1116 Gallery">
+    <meta property="og:title" content="1116 Gallery">
+    <meta property="og:description" content="Walk through the rooms of 1116 Gallery, a 3D art gallery in your browser.">
+    <meta property="og:url" content="https://1116-gallery.vercel.app/">
+    <meta property="og:image" content="https://1116-gallery.vercel.app/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <!-- Modern Styling -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+    <!-- Shown until the gallery is ready, and if it can't load -->
+    <div id="loading-screen">
+        <div class="loading-window" role="status">
+            <h2>1116 Gallery</h2>
+            <p id="loading-message">Loading the gallery…</p>
+            <button id="btn-retry" onclick="window.location.reload();" hidden>Try again</button>
+        </div>
+    </div>
 
     <!-- 3D Canvas rendering container -->
     <div id="canvas-container"></div>
@@ -90,6 +111,14 @@
     <div id="zone-indicator">
         <span id="zone-gallery-title">1116 Gallery</span>
         <span id="zone-exh-title">Main Lobby</span>
+    </div>
+
+    <!-- Walking controls, shown on touch screens only -->
+    <div id="touch-pad" aria-label="Walking controls">
+        <button data-move="forward" aria-label="Walk forward"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 1 9 9H1z"/></svg></button>
+        <button data-move="left" aria-label="Step left"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5 9 1v8z"/></svg></button>
+        <button data-move="backward" aria-label="Walk backward"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 9 1 1h8z"/></svg></button>
+        <button data-move="right" aria-label="Step right"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M9 5 1 9V1z"/></svg></button>
     </div>
 
     <!-- Bottom Right: Owner sign-in, kept away from the gallery controls -->
@@ -236,6 +265,10 @@
                 <tr><td>Adjust Zoom (FOV)</td><td>Scroll Mouse Wheel</td></tr>
                 <tr><td>Select / Inspect Artwork</td><td>Click on any artwork</td></tr>
                 <tr><td>Exit Zoom Inspect Mode</td><td>Press <span class="key-box">Esc</span></td></tr>
+                <tr>
+                    <td>On a touch screen</td>
+                    <td>Drag to look, tap a work, press and hold to walk</td>
+                </tr>
             </table>
             <button onclick="UI.hideModal('modal-help')" class="primary" style="width: 100%; justify-content: center; margin-top: 1.5rem;">Begin Exploring</button>
         </div>
